@@ -2,6 +2,12 @@ import pdfplumber
 import re
 import pandas as pd
 
+
+def is_dash_line(line: str) -> bool:
+    cleaned = line.replace(" ", "")
+    return bool(cleaned) and all(c == "-" for c in cleaned)
+
+
 def extract_data(pdf_path):
     advice_no = ""
     date = ""
@@ -12,9 +18,9 @@ def extract_data(pdf_path):
         for page in pdf.pages:
 
             text = page.extract_text() or ""
-            lines = [l.strip() for l in text.split("\n")]
+            lines = [l.strip() for l in text.split("\n") if l.strip()]
 
-            # 🔹 header
+            # 🔹 Header extraction
             adv_match = re.search(r"Advice\s*No[:\s]+(\S+)", text, re.I)
             if adv_match:
                 advice_no = adv_match.group(1)
@@ -27,7 +33,7 @@ def extract_data(pdf_path):
             if pay_match:
                 payment_made = pay_match.group(1).replace(",", "")
 
-            # 🔹 find table region
+            # 🔹 Find table region
             start, end = None, None
             for i, line in enumerate(lines):
                 if line.startswith("Ref. No"):
@@ -39,29 +45,22 @@ def extract_data(pdf_path):
             if start is None or end is None:
                 continue
 
+            # 🔹 Clean table lines
             table_lines = []
-
-            # remove junk
             for line in lines[start:end]:
-                if not line or set(line) == {"-"}:
+                if is_dash_line(line):
                     continue
                 table_lines.append(line)
 
-            # 🔥 process 3-line blocks
+            # 🔥 Dynamic row parsing (FINAL FIX)
             i = 0
             while i < len(table_lines):
 
-                try:
-                    line1 = table_lines[i]
-                    line2 = table_lines[i+1] if i+1 < len(table_lines) else ""
-                    line3 = table_lines[i+2] if i+2 < len(table_lines) else ""
+                line = table_lines[i]
+                parts = re.findall(r'\S+', line)
 
-                    # split main row safely
-                    parts = re.findall(r'\S+', line1)
-
-                    if len(parts) < 6:
-                        i += 1
-                        continue
+                # detect new row
+                if len(parts) >= 6 and re.match(r"^\d{6,}", parts[0]):
 
                     ref_no = parts[0]
                     tcode = parts[1]
@@ -70,10 +69,36 @@ def extract_data(pdf_path):
                     amount_text = parts[4]
                     amount = parts[5].replace(",", "")
 
-                    # clean TDS
-                    tds = re.sub(r"[^\d.]", "", line2)
+                    tds = ""
+                    remarks = ""
 
-                    remarks = line3
+                    j = i + 1
+
+                    # 🔥 consume lines until next row
+                    while j < len(table_lines):
+
+                        next_line = table_lines[j]
+
+                        # stop if next row starts
+                        if re.match(r"^\d{6,}", next_line):
+                            break
+
+                        if is_dash_line(next_line):
+                            j += 1
+                            continue
+
+                        tokens = next_line.split()
+
+                        for t in tokens:
+                            if re.fullmatch(r"[-\d,\.]+", t) and not tds:
+                                tds = re.sub(r"[^\d.]", "", t)
+                            else:
+                                if remarks:
+                                    remarks += " " + t
+                                else:
+                                    remarks = t
+
+                        j += 1
 
                     rows.append({
                         "Advice No": advice_no,
@@ -85,15 +110,15 @@ def extract_data(pdf_path):
                         "Amount/Text": amount_text,
                         "Amount": amount,
                         "TDS": tds,
-                        "Remarks": remarks
+                        "Remarks": remarks.strip()
                     })
 
-                    i += 3
+                    i = j  # jump to next row
 
-                except:
+                else:
                     i += 1
 
-    # 🔹 add payment row
+    # 🔹 Add Payment Made row
     if payment_made:
         rows.append({
             "Advice No": advice_no,
@@ -110,7 +135,7 @@ def extract_data(pdf_path):
 
     df = pd.DataFrame(rows)
 
-    df = df[
+    return df[
         [
             "Advice No",
             "Date",
@@ -124,5 +149,3 @@ def extract_data(pdf_path):
             "Remarks"
         ]
     ]
-
-    return df

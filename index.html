@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PDF to Excel</title>
+    <style>
+        body {
+            font-family: Arial;
+            background: #111;
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        .box {
+            background: #1e1e1e;
+            padding: 30px;
+            border-radius: 10px;
+            text-align: center;
+            width: 400px;
+        }
+
+        input {
+            margin: 15px 0;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #00c896;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        button:hover {
+            background: #00a67e;
+        }
+    </style>
+</head>
+<body>
+
+<div class="box">
+    <h2>Upload PDFs → Get Excel</h2>
+
+    <input type="file" id="files" multiple accept=".pdf">
+
+    <br>
+
+    <button type="button" onclick="upload()">Upload</button>
+
+    <p id="status"></p>
+</div>
+
+<script>
+async function upload() {
+    console.log("Upload button clicked");
+    const input = document.getElementById("files");
+    const files = input.files;
+
+    if (files.length === 0) {
+        alert("Select at least one file");
+        return;
+    }
+
+    const formData = new FormData();
+
+    for (let i = 0; i < files.length; i++) {
+        formData.append("files", files[i]);
+    }
+
+    document.getElementById("status").innerText = "Uploading...";
+
+    try {
+        const response = await fetch("http://127.0.0.1:8000/upload/", {
+            method: "POST",
+            body: formData
+        });
+
+        if (!response.ok) {
+            throw new Error("Upload failed");
+        }
+
+        const blob = await response.blob();
+
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "combined_output.xlsx";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+
+        document.getElementById("status").innerText = "Done ✅";
+
+    } catch (err) {
+        document.getElementById("status").innerText = "Error ❌";
+        console.error(err);
+    }
+}
+</script>
+
+</body>
+</html>
